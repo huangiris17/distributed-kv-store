@@ -14,6 +14,9 @@
 .DS_Store
 Thumbs.db
 
+# Auto-generated documents
+/doc
+
 # Optional: If you don't want to commit your lockfile, you can ignore it,
 # but typically you DO commit mix.lock so others can reproduce the same deps
 # mix.lock
