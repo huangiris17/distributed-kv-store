@@ -1,0 +1,19 @@
+# Compiled artifacts
+/_build
+
+# Dependencies
+/deps
+
+# ElixirLS language server files (for VSCode, etc.)
+.elixir_ls/
+
+# If you use the "mix release" command, you might want to ignore generated releases:
+/_release
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Optional: If you don't want to commit your lockfile, you can ignore it,
+# but typically you DO commit mix.lock so others can reproduce the same deps
+# mix.lock
