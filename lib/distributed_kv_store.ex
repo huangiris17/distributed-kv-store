@@ -13,9 +13,11 @@ defmodule DistributedKVStore do
     If a node fails to respond or returns an error, a hint is stored in ETS for a later retry.
     """
 
+    # Sub-module alias
     alias DistributedKVStore.ConsistentHashing
+    alias DistributedKVStore.VectorClock
 
-    # Module attributes
+    # Module attribute
     @replication_factor 3
     @write_quorum 2
 
@@ -36,8 +38,9 @@ defmodule DistributedKVStore do
     end
 
     #put/4
-    def put(ring, key, value, context \\ nil) do
-        new_vector_clock = VectorClock.update(context, self())
+    def put(ring, key, value, vector_clock \\ nil) do
+        # Update current vector clock on current node
+        new_vector_clock = VectorClock.update(vector_clock, self())
         nodes = ConsistentHashing.get_nodes(ring, key, @replication_factor)
         ref = make_ref()
 
@@ -103,11 +106,33 @@ defmodule DistributedKVStore do
     defp merge_versions([]), do: {:error, :no_responses}
     defp merge_versions([{_node, single}]), do: single
     defp merge_versions(responses) do
-        Enum.reduce(responses, fn {_node, resp}, {_best_node, best_resp} = acc ->
-            best_sum = Enum.reduce(best_resp.vector_clock || [], 0, fn {_n, count}, acc -> acc + count end)
-            curr_sum = Enum.reduce(resp.vector_clock || [], 0, fn {_n, count}, acc -> acc + count end)
-            if curr_sum > best_sum, do: {nil, resp}, else: acc
-        end)
-        |> elem(1)
+        versions = Enum.map(responses, fn {_node, resp} -> resp end)
+
+        case pick_latest_version(versions) do
+          {:conflict, concurrent_versions} ->
+            {:conflict, concurrent_versions}
+          latest ->
+            latest
+        end
+    end
+
+    defp pick_latest_version(versions) do
+        candidate =
+            Enum.find(versions, fn version ->
+                Enum.all?(versions, fn other ->
+                    case VectorClock.compare(version.vector_clock, other.vector_clock) do
+                    :descendant -> true       # version is later than other
+                    :equal -> true            # or they are the same
+                    :ancestor -> false        # version is older than other -> candidate fails
+                    :concurrent -> false      # versions are concurrent -> candidate fails
+                    end
+                end)
+            end)
+
+        if candidate do
+            candidate
+        else
+            {:conflict, versions}
+        end
     end
 end
