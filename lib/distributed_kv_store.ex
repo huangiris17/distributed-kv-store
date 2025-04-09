@@ -6,16 +6,22 @@ defmodule DistributedKVStore do
     @moduledoc """
     Implemented distributed key–value store core.
 
-    - get/1: Retrieve the value for a given key from replica nodes.
-    - put/3: Write a value (with an updated vector clock) to replica nodes.
-    
+    - get/2: Retrieve the value for a given key from replica nodes.
+    - put/4: Write a value (with an updated vector clock) to replica nodes.
+
     Replica coordination is achieved by spawning plain processes that communicate via messages.
     If a node fails to respond or returns an error, a hint is stored in ETS for a later retry.
     """
 
-    # get/1
-    def get(key) do
-        nodes = ConsistentHashing.get_nodes(key)
+    alias DistributedKVStore.ConsistentHashing
+
+    # Module attributes
+    @replication_factor 3
+    @write_quorum 2
+
+    # get/2
+    def get(ring, key) do
+        nodes = ConsistentHashing.get_nodes(ring, key, @replication_factor)
         ref = make_ref()
 
         Enum.each(nodes, fn node ->
@@ -29,10 +35,10 @@ defmodule DistributedKVStore do
         merge_versions(responses)
     end
 
-    #put/3
-    def put(key, value, context \\ nil) do
+    #put/4
+    def put(ring, key, value, context \\ nil) do
         new_vector_clock = VectorClock.update(context, self())
-        nodes = ConsistentHashing.get_nodes(key)
+        nodes = ConsistentHashing.get_nodes(ring, key, @replication_factor)
         ref = make_ref()
 
         Enum.each(nodes, fn node ->
@@ -51,7 +57,7 @@ defmodule DistributedKVStore do
             end
         end)
 
-        if ack_count >= quorum_write() do
+        if ack_count >= @write_quorum do
             :ok
         else
             # If quorum is not met, for every failed response, store a hint
@@ -101,12 +107,7 @@ defmodule DistributedKVStore do
             best_sum = Enum.reduce(best_resp.vector_clock || [], 0, fn {_n, count}, acc -> acc + count end)
             curr_sum = Enum.reduce(resp.vector_clock || [], 0, fn {_n, count}, acc -> acc + count end)
             if curr_sum > best_sum, do: {nil, resp}, else: acc
-        end
+        end)
         |> elem(1)
     end
-
-    # Define the write quorum
-    defp quorum_write, do: 2
 end
-
-
