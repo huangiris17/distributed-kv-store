@@ -16,6 +16,7 @@ defmodule DistributedKVStore do
     # Sub-module alias
     alias DistributedKVStore.ConsistentHashing
     alias DistributedKVStore.VectorClock
+    alias DistributedKVStore.NodeKV
 
     # Module attribute
     @replication_factor 3
@@ -77,14 +78,14 @@ defmodule DistributedKVStore do
 
     # Make a simulated remote get call to a node
     defp node_get(node, key) do
-        NodeKV.get(key, node)
+        NodeKV.get(node, key)
     rescue
         _ -> {:error, :node_down}
     end
 
     # Make a simulated remote put call to a node
     defp node_put(node, key, value, vector_clock) do
-        NodeKV.put(key, value, vector_clock, node)
+        NodeKV.put(node, key, value, vector_clock)
     rescue
         _ -> {:error, :node_down}
     end
