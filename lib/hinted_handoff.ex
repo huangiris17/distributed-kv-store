@@ -22,16 +22,16 @@ defmodule HintedHandoff do
     end
 
     # Public API to store a hint for a failed node
-    def store_hint(failed_node, key, value, vector_clock) do
+    def store_hint(failed_node, key, value, vector_clock, timestamp) do
       init()
-      :ets.insert(:hints, {failed_node, key, value, vector_clock})
+      :ets.insert(:hints, {failed_node, key, value, vector_clock, timestamp})
     end
 
     # Public API to retry sending the stored hints
     def retry_hints do
       init()
-      for {node, key, value, vector_clock} <- :ets.tab2list(:hints) do
-        case NodeKV.put(node, key, value, vector_clock) do
+      for {node, key, value, vector_clock, timestamp} <- :ets.tab2list(:hints) do
+        case NodeKV.put(node, key, value, vector_clock, timestamp) do
           {:ok, _} -> :ets.delete(:hints, node)
           _ -> :ok
         end
