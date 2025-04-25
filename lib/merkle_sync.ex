@@ -1,7 +1,7 @@
 defmodule DistributedKVStore.MerkleSync do
     use GenServer
 
-    alias DistributedKVStore.{ConsistentHashing, MerkleTree}
+    alias DistributedKVStore.{ConsistentHashing, MerkleTree, NodeKV}
 
     @rep_factor Application.get_env(:distributed_kv_store, :replication_factor)
     @sync_interval_ms 60_000
@@ -10,7 +10,7 @@ defmodule DistributedKVStore.MerkleSync do
         GenServer.start_link(__MODULE__, ring, name: __MODULE__)
     end
 
-    def init({ring, interval}) do
+    def init(ring) do
         Process.send_after(self(), :sync, @sync_interval_ms)
         {:ok, ring}
     end
@@ -22,27 +22,48 @@ defmodule DistributedKVStore.MerkleSync do
     end
 
     defp do_sync(ring) do
-        for node <- get_ring_nodes(ring) do
-            current_merkle = MerkleTree.build(node)
+        nodes = get_ring_nodes(ring)
 
-            keys_for_node = ConsistentHashing.get_keys_for_node(ring, node)
+        Enum.each(nodes, fn node ->
+            synchronize_node(ring, node)
+        end)
+    end
 
-            Enum.each(keys_for_node, fn key ->
-                replica_nodes = ConsistentHashing.get_nodes(ring, key, @rep_factor)
-                Enum.each(replica_nodes, fn replica_node ->
-                    remote_merkle = get_remote_merkle(replica_node)
-                    case MerkleTree.diff(local_merkle, remote_merkle) do
-                        [] -> :ok
-                        differences -> propagate_changes(differences, replica_node)
-                    end
-                end)
+    defp synchronize_node(ring, node) do
+        keys_for_node = ConsistentHashing.get_keys_for_node(ring, node)
+
+        Enum.each(keys_for_node, fn key ->
+            replica_nodes = ConsistentHashing.get_nodes(ring, key, @rep_factor)
+            Enum.each(replica_nodes, fn replica ->
+                if node != replica do
+                    synchronize_key(node, replica)
+                end
             end)
+        end)
+    end
+
+    defp synchronize_key(source_node, target_node) do
+        source_merkle = get_merkle_tree(source_node)
+        target_merkle = get_merkle_tree(target_node)
+
+        case source_merkle && target_merkle do
+            true ->
+                differences = MerkleTree.diff(source_merkle, target_merkle)
+
+                if differences != [] do
+                    resolve_differences(source_node, target_node, differences)
+                end
+
+            _ ->
+                do_full_sync(source_node, target_node)
         end
     end
 
-    defp get_ring_nodes(ring), do ConsistentHashing.nodes(ring)
+    defp get_ring_nodes(ring) do
+        ConsistentHashing.nodes(ring)
+    end
 
-    defp get_remote_merkle(node) do
+    defp get_merkle_tree(node) do
         send(node, {:get_merkle_tree, self()})
         receive do
             {:ok, merkle_tree} -> merkle_tree
@@ -51,9 +72,22 @@ defmodule DistributedKVStore.MerkleSync do
         end
     end
 
-    defp propagate_changes(differences, node) do
-        Enum.each(differences, fn {k, v} ->
-            send(node, {:update_merkle, k, v})
+    defp resolve_differences(source_node, target_node, differences) do
+        Enum.each(differences, fn {key, _} ->
+            case NodeKV.get(source_node, key) do
+                {value, vector_clock, timestamp} ->
+                    NodeKV.put(target_node, key, value, vector_clock, timestamp)
+                nil ->
+                    :ok
+            end
+        end)
+    end
+
+    defp do_full_sync(source_node, target_node) do
+        all_data = NodeKV.get_all(source_node)
+
+        Enum.each(all_data, fn {key, {value, vector_clock, timestamp}} ->
+            NodeKV.put(target_node, key, value, vector_clock, timestamp)
         end)
     end
 end

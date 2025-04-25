@@ -37,7 +37,6 @@ defmodule DistributedKVStore.ConsistentHashing do
       key_hash = compute_token(key)
       case Enum.find(ring, fn token -> token.value >= key_hash end) do
         nil ->
-          # key_hash is greater than any token; wrap around to the first token
           hd(ring).node
         token ->
           token.node
@@ -92,13 +91,5 @@ defmodule DistributedKVStore.ConsistentHashing do
     defp compute_key(token_value) do
       key_hash = :crypto.hash(:sha256, <<token_value::binary>>)
       :binary.encode_unsigned(key_hash)
-    end
-
-    def handle_cast({:update_merkle, k, v}, state) do
-      new_data = Map.put(state.data, k, v)
-
-      new_merkle_tree = MerkleTree.build(new_data)
-
-      {:noreply, %{state | data: new_data, merkle_tree: new_merkle_tree}}
     end
   end
