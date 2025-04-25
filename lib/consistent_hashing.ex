@@ -25,6 +25,12 @@ defmodule DistributedKVStore.ConsistentHashing do
       end)
     end
 
+    def nodes(ring) do
+      ring
+      |> Enum.map(& &1.node)
+      |> Enum.uniq()
+    end
+
     # get_node/2
     # Get the node that is in charge of the key on the ring
     def get_node(ring, key) do
@@ -51,6 +57,28 @@ defmodule DistributedKVStore.ConsistentHashing do
       |> Enum.uniq()  # Remove duplicates if a single node has multiple tokens
     end
 
+    def get_keys_for_node(ring, node) do
+      node_tokens = Enum.filter(ring, fn %Token{node: n} -> n == node end)
+
+      node_tokens
+      |> Enum.map(fn %Token{value: token_value} ->
+          next_token = get_next_token(ring, token_value)
+          {token_value, next_token}
+      end)
+      |> Enum.flat_map(fn {start_value, end_value} ->
+          Enum.map(start_value..end_value, &compute_key(&1))
+      end)
+    end
+
+    defp get_next_token(ring, token_value) do
+      ring
+      |> Enum.find(fn %Token{value: value} -> value > token_value end)
+      |> case do
+           nil -> hd(ring).value
+           %Token{value: next_value} -> next_value
+         end
+    end
+
     # compute_token/2
     # Compute the hashed value of the key
     # Modulo is implemented for fixed ring size
@@ -59,5 +87,18 @@ defmodule DistributedKVStore.ConsistentHashing do
       |> :binary.bin_to_list()
       |> Enum.reduce(0, fn byte, acc -> (acc <<< 8) + byte end)
       |> rem(modulo)
+    end
+
+    defp compute_key(token_value) do
+      key_hash = :crypto.hash(:sha256, <<token_value::binary>>)
+      :binary.encode_unsigned(key_hash)
+    end
+
+    def handle_cast({:update_merkle, k, v}, state) do
+      new_data = Map.put(state.data, k, v)
+
+      new_merkle_tree = MerkleTree.build(new_data)
+
+      {:noreply, %{state | data: new_data, merkle_tree: new_merkle_tree}}
     end
   end

@@ -14,9 +14,7 @@ defmodule DistributedKVStore do
     """
 
     # Sub-module alias
-    alias DistributedKVStore.ConsistentHashing
-    alias DistributedKVStore.VectorClock
-    alias DistributedKVStore.NodeKV
+    alias DistributedKVStore.{ConsistentHashing, VectorClock, NodeKV}
 
     # Module attribute
     @replication_factor 3
