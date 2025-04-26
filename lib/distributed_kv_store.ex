@@ -26,9 +26,10 @@ defmodule DistributedKVStore do
         ref = make_ref()
 
         Enum.each(nodes, fn node ->
+            parent = self()
             spawn(fn ->
                 result = node_get(node, key)
-                send(self(), {ref, node, result})
+                send(parent, {ref, node, result})
             end)
         end)
 
@@ -48,11 +49,12 @@ defmodule DistributedKVStore do
         nodes = ConsistentHashing.get_nodes(ring, key, @replication_factor)
         timestamp = System.system_time(:millisecond)
         ref = make_ref()
+        parent = self()
 
         Enum.each(nodes, fn node ->
             spawn(fn ->
                 result = node_put(node, key, value, vector_clock, timestamp)
-                send(self(), {ref, node, result})
+                send(parent, {ref, node, result})
             end)
         end)
 

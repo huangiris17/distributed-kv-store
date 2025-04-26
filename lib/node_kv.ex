@@ -50,18 +50,4 @@ defmodule DistributedKVStore.NodeKV do
                 {:reply, {:error, :unknown_call}, state}
         end
     end
-
-    def handle_cast(message, state) do
-        case message do
-            {:update_merkle, key, value, vector_clock, timestamp} ->
-                new_kv_map = Map.put(state.kv_map, key, {value, vector_clock, timestamp})
-                new_merkle_tree = MerkleTree.build(new_kv_map)
-                new_state = %{state | kv_map: new_kv_map, merkle_tree: new_merkle_tree}
-
-                {:noreply, {:ok, value}, new_state}
-
-            _ ->
-                {:noreply, state}
-        end
-    end
 end
