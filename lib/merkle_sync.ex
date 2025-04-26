@@ -3,7 +3,7 @@ defmodule DistributedKVStore.MerkleSync do
 
     alias DistributedKVStore.{ConsistentHashing, MerkleTree, NodeKV}
 
-    @rep_factor Application.get_env(:distributed_kv_store, :replication_factor)
+    @rep_factor Application.compile_env(:distributed_kv_store, :replication_factor, 3)
     @sync_interval_ms 60_000
 
     def start_link(ring) do

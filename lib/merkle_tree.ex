@@ -78,14 +78,40 @@ defmodule DistributedKVStore.MerkleTree do
         [{k1, v1}]
     end
 
-    def diff(%Node{left: l1, right: r1, hash: h1}, %Node{left: l2, right: r2, hash: h2}) when h1 != h2 do
-        l_diff = if l1 && l2, do: diff(l1, l2), else: []
-        r_diff = if r1 && r2, do: diff(r1, r2), else: []
+    def diff(%Node{left: l1, right: r1, hash: h1}, %Node{left: l2, right: r2, hash: h2})
+        when h1 != h2 and not is_nil(l1) and not is_nil(l2) and not is_nil(r1) and not is_nil(r2) do
+            left_diff = diff(l1, l2)
+            right_diff = diff(r1, r2)
+            left_diff ++ right_diff
+    end
+
+    def diff(%Node{left: l1, right: r1}, %Node{left: l2, right: r2}) do
+        l_diff = case {l1, l2} do
+            {nil, nil} -> []
+            {nil, node} -> get_all_keys(node)
+            {node, nil} -> get_all_keys(node)
+            {l1, l2} -> diff(l1, l2)
+        end
+
+        r_diff = case {r1, r2} do
+            {nil, nil} -> []
+            {nil, node} -> get_all_keys(node)
+            {node, nil} -> get_all_keys(node)
+            {r1, r2} -> diff(r1, r2)
+        end
 
         l_diff ++ r_diff
     end
 
-    def diff(%Node{range: {start1, end1}}, %Node{range: {start2, end2}}) do
-        [{min(start1, start2), max(end1, end2)}]
+    def diff(%Node{} = node1, %Node{} = node2) do
+        get_all_keys(node1) ++ get_all_keys(node2)
     end
+
+    def get_all_keys(%Node{left: nil, right: nil, key: k, value: v}) when not is_nil(k), do: [{k, v}]
+    def get_all_keys(%Node{left: l, right: r}) do
+        left_keys = if l, do: get_all_keys(l), else: []
+        right_keys = if r, do: get_all_keys(r), else: []
+        left_keys ++ right_keys
+    end
+    def get_all_keys(_), do: []
 end

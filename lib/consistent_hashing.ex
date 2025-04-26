@@ -57,25 +57,9 @@ defmodule DistributedKVStore.ConsistentHashing do
     end
 
     def get_keys_for_node(ring, node) do
-      node_tokens = Enum.filter(ring, fn %Token{node: n} -> n == node end)
-
-      node_tokens
-      |> Enum.map(fn %Token{value: token_value} ->
-          next_token = get_next_token(ring, token_value)
-          {token_value, next_token}
-      end)
-      |> Enum.flat_map(fn {start_value, end_value} ->
-          Enum.map(start_value..end_value, &compute_key(&1))
-      end)
-    end
-
-    defp get_next_token(ring, token_value) do
-      ring
-      |> Enum.find(fn %Token{value: value} -> value > token_value end)
-      |> case do
-           nil -> hd(ring).value
-           %Token{value: next_value} -> next_value
-         end
+        ring
+        |> Enum.filter(fn %Token{node: n} -> n == node end)
+        |> Enum.map(fn %Token{value: token_value} -> compute_key(token_value) end)
     end
 
     # compute_token/2

@@ -33,7 +33,7 @@ defmodule DistributedKVStore.NodeKV do
                 result = Map.get(state.kv_map, key)
                 {:reply, result, state}
 
-            {:get_all} ->
+            :get_all ->
                 {:reply, state.kv_map, state}
 
             {:put, key, value, vector_clock, timestamp} ->

@@ -137,8 +137,6 @@ defmodule DistributedKVStore do
                 end)
             end)
 
-        # If one reponse is equal or later than all other responses, return the response.
-        # Otherwise, return all responses
         if candidate do
             {:ok, candidate}
         else
