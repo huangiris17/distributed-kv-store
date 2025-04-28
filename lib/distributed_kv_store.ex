@@ -15,6 +15,7 @@ defmodule DistributedKVStore do
 
     # Sub-module alias
     alias DistributedKVStore.{ConsistentHashing, VectorClock, NodeKV}
+    alias DistributedKVStore.Gossip
 
     # Module attribute
     @replication_factor 3
@@ -23,12 +24,21 @@ defmodule DistributedKVStore do
     def start_node(node_name) do
         {:ok, pid} = DistributedKVStore.NodeKV.start_link(name: node_name)
         IO.puts("#{node_name} started with PID: #{inspect(pid)}")
+        
         pid
     end
 
     def initialize_nodes(nodes) do
+        Enum.each(nodes, &start_node/1)
+
+        now = System.system_time(:millisecond)
+        initial_view = 
+            for n <- nodes, into: %{} do
+                {n, %{status: :alive, timestamp: now}}
+            end
+
         Enum.each(nodes, fn node_name ->
-            start_node(node_name)
+            spawn(fn -> Gossip.start(node_name, initial_view) end)
         end)
     end
 
