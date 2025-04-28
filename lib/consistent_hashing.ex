@@ -49,11 +49,18 @@ defmodule DistributedKVStore.ConsistentHashing do
       key_hash = compute_token(key)
       start_index = Enum.find_index(ring, fn token -> token.value >= key_hash end) || 0
 
-      ring
-      |> Stream.cycle()
-      |> Enum.slice(start_index, replication_factor)
-      |> Enum.map(fn tuple -> tuple.node end)
-      |> Enum.uniq()  # Remove duplicates if a single node has multiple tokens
+
+      node =
+        ring
+        |> Stream.cycle()
+        |> Enum.slice(start_index, replication_factor)
+        |> Enum.map(fn tuple -> tuple.node end)
+
+        # IO.puts("Nodes array size #{length(node)} before filtering")
+        node = Enum.uniq(node)  # Remove duplicates if a single node has multiple tokens
+
+      # IO.puts("Nodes array size #{length(node)} after filtering")
+      node
     end
 
     def get_keys_for_node(ring, node) do

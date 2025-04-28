@@ -90,4 +90,13 @@ defmodule DistributedKVStore.MerkleSync do
             NodeKV.put(target_node, key, value, vector_clock, timestamp)
         end)
     end
+
+    def sync do
+        GenServer.call(__MODULE__, :manual_sync)
+    end
+
+    def handle_call(:manual_sync, _from, ring) do
+        do_sync(ring)
+        {:reply, :ok, ring}
+    end
 end
