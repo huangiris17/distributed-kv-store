@@ -46,25 +46,12 @@ defmodule DistributedKVStore do
         end)
 
         responses = collect_responses(ref, length(nodes))
-
-        IO.puts("Responses size #{length(responses)}")
-
-        valid_responses = Enum.filter(responses, fn response ->
-                IO.puts("Response: #{inspect(response)}")
-                case response do
-                    {_node, {:error, _}} -> false
-                    {_node, {:ok, _res}} -> true
-                    _ -> false
-                end
-            end)
-
-        IO.puts("Valid responses size #{length(valid_responses)}")
-
+        valid_responses = filter_success_responses(responses)
         merge_versions(ring, key, valid_responses)
     end
 
-    #put/3
-    def put(ring, key, value) do
+    #put/4
+    def put(ring, key, value, vector_clock \\ nil) do
         IO.puts("Put called")
         nodes = ConsistentHashing.get_nodes(ring, key, @replication_factor)
         IO.inspect(nodes, label: "Nodes are responsible")
@@ -74,21 +61,19 @@ defmodule DistributedKVStore do
 
         Enum.each(nodes, fn node ->
             spawn(fn ->
-                vector_clock = get_or_create_vector_clock(node, key)
+                vector_clock = if vector_clock == nil do
+                    get_or_create_vector_clock(node, key)
+                else
+                    vector_clock
+                end
                 result = node_put(node, key, value, vector_clock, timestamp)
                 send(parent, {ref, node, result})
             end)
         end)
 
         responses = collect_responses(ref, length(nodes))
-
-        # Count the successful acknowledgments from the nodes
-        ack_count = Enum.count(responses, fn {_node, res} ->
-            case res do
-                {:ok, _} -> true
-                _ -> false
-            end
-        end)
+        success_responses = filter_success_responses(responses)
+        ack_count = length(success_responses)
 
         if ack_count >= @write_quorum do
             IO.puts("Response counts > quorum")
@@ -99,7 +84,11 @@ defmodule DistributedKVStore do
             Enum.each(responses, fn {node, res} ->
                 case res do
                     {:error, _} ->
-                        vector_clock = get_or_create_vector_clock(node, key)
+                        vector_clock = if vector_clock == nil do
+                            get_or_create_vector_clock(node, key)
+                        else
+                            vector_clock
+                        end
                         HintedHandoff.store_hint(node, key, value, vector_clock,timestamp)
                     _ -> :ok
                 end
@@ -108,49 +97,6 @@ defmodule DistributedKVStore do
             :error
         end
     end
-
-#update/4
-defp update(ring, key, value, vector_clock) do
-    IO.puts("Update called")
-    nodes = ConsistentHashing.get_nodes(ring, key, @replication_factor)
-    IO.inspect(nodes, label: "Nodes are responsible")
-    timestamp = System.system_time(:millisecond)
-    ref = make_ref()
-    parent = self()
-
-    Enum.each(nodes, fn node ->
-        spawn(fn ->
-            result = node_put(node, key, value, vector_clock, timestamp)
-            send(parent, {ref, node, result})
-        end)
-    end)
-
-    responses = collect_responses(ref, length(nodes))
-
-    # Count the successful acknowledgments from the nodes
-    ack_count = Enum.count(responses, fn {_node, res} ->
-        case res do
-            {:ok, _} -> true
-            _ -> false
-        end
-    end)
-
-    if ack_count >= @write_quorum do
-        IO.puts("Response counts > quorum")
-        :ok
-    else
-        IO.puts("Response counts < quorum")
-        # If quorum is not met, for every failed response, store a hint
-        Enum.each(responses, fn {node, res} ->
-            case res do
-                {:error, _} -> HintedHandoff.store_hint(node, key, value, vector_clock, timestamp)
-                _ -> :ok
-            end
-        end)
-
-        :error
-    end
-end
 
     # Make a simulated remote get call to a node
     defp node_get(node, key) do
@@ -182,11 +128,21 @@ end
                     IO.puts("Simulating failure for node #{inspect(node)}")
                     {:error, :node_down}
                 else
-                    NodeKV.put(node, key, value, vector_clock, timestamp)
+                    result = NodeKV.put(node, key, value, vector_clock, timestamp)
+                    case result do
+                        value -> {:ok, value}
+                        {:put_failed, _} -> {:error, :put_failed}
+                        _ -> {:error, :no_response}
+                    end
                 end
 
             _ ->
-                NodeKV.put(node, key, value, vector_clock, timestamp)
+                result = NodeKV.put(node, key, value, vector_clock, timestamp)
+                case result do
+                    value -> {:ok, value}
+                    {:put_failed, _} -> {:error, :put_failed}
+                    _ -> {:error, :no_response}
+                end
         end
     rescue
         _ -> {:error, :node_down}
@@ -218,7 +174,7 @@ end
         case pick_version(versions) do
             {:conflict, concurrent_versions} ->
                 {val, merged_vc} = pick_version_lww(concurrent_versions)
-                update(ring, key, val, merged_vc)
+                put(ring, key, val, merged_vc)
                 val
             {:ok, {val, _vc}} ->
                 val
@@ -261,11 +217,21 @@ end
         case node_get(node, key) do
             {:ok, {_value, vector_clock, _timestamp}} ->
                 IO.puts("Found existing vector clock for #{key}: #{inspect(vector_clock)}")
-                vector_clock
+                VectorClock.update(vector_clock, node)
 
             {:error, _} ->
                 IO.puts("Creating a new vector clock for #{key}")
                 VectorClock.update(nil, node)
         end
+    end
+
+    defp filter_success_responses(responses) do
+        Enum.filter(responses, fn {_node, response} ->
+            case response do
+                {:error, _} -> false
+                {:ok, _res} -> true
+                _ -> false
+            end
+        end)
     end
 end

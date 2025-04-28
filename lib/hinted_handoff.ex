@@ -24,16 +24,21 @@ defmodule HintedHandoff do
     # Public API to store a hint for a failed node
     def store_hint(failed_node, key, value, vector_clock, timestamp) do
       init()
-      :ets.insert(:hints, {failed_node, key, value, vector_clock, timestamp})
+      retry_count = 0
+      :ets.insert(:hints, {failed_node, key, value, vector_clock, timestamp, retry_count})
     end
 
     # Public API to retry sending the stored hints
     def retry_hints do
       init()
-      for {node, key, value, vector_clock, timestamp} <- :ets.tab2list(:hints) do
-        case NodeKV.put(node, key, value, vector_clock, timestamp) do
-          {:ok, _} -> :ets.delete(:hints, node)
-          _ -> :ok
+      for {node, key, value, vector_clock, timestamp, retry_count} <- :ets.tab2list(:hints) do
+        if retry_count < 5 do
+          case NodeKV.put(node, key, value, vector_clock, timestamp) do
+            {:ok, _} -> :ets.delete(:hints, {node, key, value, vector_clock, timestamp})
+            _ -> :ets.insert(:hints, {node, key, value, vector_clock, timestamp, retry_count + 1})
+          end
+        else
+          IO.puts("Retry limit reached for #{node} and key #{key}")
         end
       end
     end

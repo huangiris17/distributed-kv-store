@@ -56,11 +56,11 @@ defmodule DistributedKVStore.NodeKV do
                     new_merkle_tree = MerkleTree.build(new_kv_map)
                     new_state = %{state | kv_map: new_kv_map, merkle_tree: new_merkle_tree}
 
-                    {:reply, {:ok, value}, new_state}
+                    {:reply, value, new_state}
                 rescue
                     exception ->
                         IO.puts("Error during put operation: #{exception}")
-                        {:reply, {:error, :put_failed}, state}
+                        {:reply, :put_failed, state}
                 end
 
             :get_merkle_tree ->
