@@ -14,25 +14,26 @@ defmodule DistributedKVStore do
     """
 
     # Sub-module alias
-    alias DistributedKVStore.{ConsistentHashing, VectorClock, NodeKV}
-    alias DistributedKVStore.Gossip
+    alias DistributedKVStore.{ConsistentHashing, VectorClock, NodeKV, Gossip, HintedHandoff}
 
     # Module attribute
     @replication_factor 3
     @write_quorum 2
 
     def start_node(node_name) do
-        {:ok, pid} = DistributedKVStore.NodeKV.start_link(name: node_name)
-        IO.puts("#{node_name} started with PID: #{inspect(pid)}")
-        
+        {:ok, pid} = NodeKV.start_link(name: node_name)
+        # IO.puts("#{node_name} started with PID: #{inspect(pid)}")
+
         pid
     end
 
     def initialize_nodes(nodes) do
         Enum.each(nodes, &start_node/1)
 
+        HintedHandoff.init()
+
         now = System.system_time(:millisecond)
-        initial_view = 
+        initial_view =
             for n <- nodes, into: %{} do
                 {n, %{status: :alive, timestamp: now}}
             end
@@ -62,7 +63,6 @@ defmodule DistributedKVStore do
 
     #put/4
     def put(ring, key, value, vector_clock \\ nil) do
-        IO.puts("Put called")
         nodes = ConsistentHashing.get_nodes(ring, key, @replication_factor)
         IO.inspect(nodes, label: "Nodes are responsible")
         timestamp = System.system_time(:millisecond)
@@ -99,7 +99,7 @@ defmodule DistributedKVStore do
                         else
                             vector_clock
                         end
-                        HintedHandoff.store_hint(node, key, value, vector_clock,timestamp)
+                        HintedHandoff.store_hint(node, key, value, vector_clock)
                     _ -> :ok
                 end
             end)
@@ -112,7 +112,7 @@ defmodule DistributedKVStore do
     defp node_get(node, key) do
         try do
             result = NodeKV.get(node, key)
-            IO.puts("KV_Store: Retrieved #{node} value for key: #{key} => #{inspect(result)}")
+            # IO.puts("KV_Store: Retrieved #{node} value for key: #{key} => #{inspect(result)}")
             case result do
             {value, vector_clock, timestamp} -> {:ok, {value, vector_clock, timestamp}}
             {:error, _reason} -> {:error, :key_not_found}
@@ -125,7 +125,6 @@ defmodule DistributedKVStore do
     # Make a simulated remote put call to a node
     defp node_put(node, key, value, vector_clock, timestamp) do
         # NodeKV.put(node, key, value, vector_clock, timestamp)
-        # IO.puts("Node for put called: #{inspect(node)}")
         case Application.get_env(:distributed_kv, :node_fail_mode, :always_succeed) do
             :always_fail ->
                 # Simulate node failure
@@ -140,18 +139,16 @@ defmodule DistributedKVStore do
                 else
                     result = NodeKV.put(node, key, value, vector_clock, timestamp)
                     case result do
-                        value -> {:ok, value}
-                        {:put_failed, _} -> {:error, :put_failed}
-                        _ -> {:error, :no_response}
+                        {:put_failed} -> {:error, :put_failed}
+                        {:ok, value} -> {:ok, value}
                     end
                 end
 
             _ ->
                 result = NodeKV.put(node, key, value, vector_clock, timestamp)
                 case result do
-                    value -> {:ok, value}
-                    {:put_failed, _} -> {:error, :put_failed}
-                    _ -> {:error, :no_response}
+                    {:put_failed} -> {:error, :put_failed}
+                    {:ok, value} -> {:ok, value}
                 end
         end
     rescue

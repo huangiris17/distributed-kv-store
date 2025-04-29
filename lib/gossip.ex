@@ -25,6 +25,9 @@ defmodule DistributedKVStore.Gossip do
     @receive_timeout   100     # ms to wait for incoming gossip messages each round
     @failure_threshold 3_000   # ms without update before marking a node as failed
 
+    # Sub-module alias
+    alias DistributedKVStore.HintedHandoff
+
     @doc """
     Starts the gossip process for a given node.
 
@@ -35,6 +38,7 @@ defmodule DistributedKVStore.Gossip do
     The process registers itself under the name `:"gossip_{node_id}"` and begins the gossip loop.
     """
     def start(node_id, initial_view \\ %{}) do
+      IO.puts("Gossip starts for node #{node_id}")
       Process.register(self(), gossip_name(node_id))
       # Ensure our own record is in the view
       view = Map.put(initial_view, node_id, %{status: :alive, timestamp: current_time()})
@@ -114,6 +118,12 @@ defmodule DistributedKVStore.Gossip do
           else
             data
           end
+
+          if new_data.status == :alive and data.status == :failed do
+            IO.puts("Node #{node} has recovered, retrying hints.")
+            HintedHandoff.retry_hints()
+          end
+
         {node, new_data}
       end)
       |> Enum.into(%{})

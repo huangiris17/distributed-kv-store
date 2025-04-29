@@ -6,6 +6,7 @@ defmodule DistributedKVStoreTest do
   @nodes [:node1, :node2, :node3, :node4, :node5, :node6, :node7, :node8, :node9, :node10]
   @key "test_key"
   @value "test_value"
+  @replication_factor 3
 
   setup_all do
     Enum.each(@nodes, fn node_name ->
@@ -19,7 +20,9 @@ defmodule DistributedKVStoreTest do
         end
       end)
     end)
+
     DistributedKVStore.initialize_nodes(@nodes)
+
     # IO.puts("Connected nodes: #{inspect(Node.list())}")
     {:ok, nodes: @nodes}
   end
@@ -101,27 +104,29 @@ defmodule DistributedKVStoreTest do
     assert get_result == {:error, :no_responses}
   end
 
-  test "partial failure with quorum not met (hinting)", %{ring: ring} do
-    Application.put_env(:distributed_kv, :node_fail_mode, :always_fail)
-
-    put_result = DistributedKVStore.put(ring, "key_no_quorum", "value_no_quorum")
-    assert put_result == :error
-
-    # Check if hints were stored for retry
-    hints = :ets.tab2list(:hints)
-    assert length(hints) > 0
-  end
-
   test "successful get after hint stored", %{ring: ring} do
     Application.put_env(:distributed_kv, :node_fail_mode, :always_fail)
 
-    put_result = DistributedKVStore.put(ring, "key_hint", "value_hint")
+    put_result = DistributedKVStore.put(ring, @key, @value)
     assert put_result == :error
+
+    hints_before = :ets.tab2list(:hints)
+    assert Enum.any?(hints_before, fn {node, key, value, _vc, _cnt} ->
+      key == @key and value == @value
+    end)
+    assert length(hints_before) == @replication_factor
 
     # Simulate retry by forcing a success for the hint
     Application.put_env(:distributed_kv, :node_fail_mode, :always_succeed)
 
-    get_result = DistributedKVStore.get(ring, "key_hint")
-    assert get_result == "value_hint"
+    DistributedKVStore.HintedHandoff.retry_hints()
+
+    get_result = DistributedKVStore.get(ring, @key)
+    assert get_result == @value
+
+    hints_after = :ets.tab2list(:hints)
+    refute Enum.any?(hints_after, fn {node, key, value, _vc, _cnt} ->
+      key == @key and value == @value
+    end)
   end
 end

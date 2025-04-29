@@ -24,14 +24,7 @@ defmodule DistributedKVStore.NodeKV do
     end
 
     def put(node, key, value, vector_clock, timestamp) do
-        # IO.inspect(node, label: "Node called for put")
         GenServer.call(node, {:put, key, value, vector_clock, timestamp})
-        # if Process.alive?(node) do
-        #     IO.puts("GenServer is alive. Sending call to #{inspect(node)}")
-        #     GenServer.call(node, {:put, key, value, vector_clock, timestamp})
-        # else
-        #     IO.puts("GenServer is not alive: #{inspect(node)}")
-        # end
     end
 
     def get_merkle_tree(node) do
@@ -44,7 +37,7 @@ defmodule DistributedKVStore.NodeKV do
         case message do
             {:get, key} ->
                 result = Map.get(state.kv_map, key)
-                IO.puts("NodeKV: Retrieved value for key: #{key} => #{inspect(result)}")
+                # IO.puts("NodeKV: Retrieved value for key: #{key} => #{inspect(result)}")
                 {:reply, result, state}
 
             :get_all ->
@@ -56,7 +49,7 @@ defmodule DistributedKVStore.NodeKV do
                     new_merkle_tree = MerkleTree.build(new_kv_map)
                     new_state = %{state | kv_map: new_kv_map, merkle_tree: new_merkle_tree}
 
-                    {:reply, value, new_state}
+                    {:reply, {:ok, value}, new_state}
                 rescue
                     exception ->
                         IO.puts("Error during put operation: #{exception}")

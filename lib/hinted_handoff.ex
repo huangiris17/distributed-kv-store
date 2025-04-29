@@ -2,7 +2,7 @@
 # Hinted Handoff Implementation  #
 ##################################
 
-defmodule HintedHandoff do
+defmodule DistributedKVStore.HintedHandoff do
     @moduledoc """
     Implements hinted handoff logic
 
@@ -22,20 +22,20 @@ defmodule HintedHandoff do
     end
 
     # Public API to store a hint for a failed node
-    def store_hint(failed_node, key, value, vector_clock, timestamp) do
-      init()
+    def store_hint(failed_node, key, value, vector_clock) do
       retry_count = 0
-      :ets.insert(:hints, {failed_node, key, value, vector_clock, timestamp, retry_count})
+      :ets.insert(:hints, {failed_node, key, value, vector_clock, retry_count})
     end
 
     # Public API to retry sending the stored hints
     def retry_hints do
-      init()
-      for {node, key, value, vector_clock, timestamp, retry_count} <- :ets.tab2list(:hints) do
+      for {node, key, value, vector_clock, retry_count} <- :ets.tab2list(:hints) do
         if retry_count < 5 do
-          case NodeKV.put(node, key, value, vector_clock, timestamp) do
-            {:ok, _} -> :ets.delete(:hints, {node, key, value, vector_clock, timestamp})
-            _ -> :ets.insert(:hints, {node, key, value, vector_clock, timestamp, retry_count + 1})
+          timestamp = System.system_time(:millisecond)
+          result = NodeKV.put(node, key, value, vector_clock, timestamp)
+          case result do
+            {:ok, _} -> :ets.delete_object(:hints, {node, key, value, vector_clock, retry_count})
+            _ -> :ets.insert(:hints, {node, key, value, vector_clock, retry_count + 1})
           end
         else
           IO.puts("Retry limit reached for #{node} and key #{key}")
