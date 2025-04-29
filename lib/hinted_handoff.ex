@@ -10,9 +10,6 @@ defmodule DistributedKVStore.HintedHandoff do
     can be retried later
     """
 
-    # Sub-module alias
-    alias DistributedKVStore.NodeKV
-
     # Initialize the ETS table for hints if it doesn't already exist
     def init do
       case :ets.info(:hints) do
@@ -32,7 +29,7 @@ defmodule DistributedKVStore.HintedHandoff do
       for {node, key, value, vector_clock, retry_count} <- :ets.tab2list(:hints) do
         if retry_count < 5 do
           timestamp = System.system_time(:millisecond)
-          result = NodeKV.put(node, key, value, vector_clock, timestamp)
+          result = node_kv_module().put(node, key, value, vector_clock, timestamp)
           case result do
             {:ok, _} -> :ets.delete_object(:hints, {node, key, value, vector_clock, retry_count})
             _ -> :ets.insert(:hints, {node, key, value, vector_clock, retry_count + 1})
@@ -41,5 +38,10 @@ defmodule DistributedKVStore.HintedHandoff do
           IO.puts("Retry limit reached for #{node} and key #{key}")
         end
       end
+    end
+
+    defp node_kv_module do
+      Application.get_env(:distributed_kv, :node_kv_module,
+                          DistributedKVStore.NodeKV)
     end
 end

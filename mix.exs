@@ -25,7 +25,8 @@ defmodule Kvstore.MixProject do
     # Run "mix help compile.app" to learn about applications.
     def application do
       [
-        extra_applications: [:logger]
+        mod: {DistributedKVStore.Application, []},
+        extra_applications: [:logger, :libcluster]
       ]
     end
 
@@ -36,7 +37,9 @@ defmodule Kvstore.MixProject do
         {:credo, "~> 1.4", only: [:dev, :test], runtime: false},
         {:statistics, "~> 0.6.2"},
         {:ex_doc, "~> 0.22", only: :dev, runtime: false},
-        {:local_cluster, "~> 1.2", only: :test}
+        {:local_cluster, "~> 1.2", only: :test},
+        {:mox, "~> 1.0", only: :test},
+        {:libcluster, "~> 3.3"}
       ]
     end
   end

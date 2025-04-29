@@ -30,6 +30,7 @@ defmodule DistributedKVStore.MerkleSync do
     end
 
     defp synchronize_node(ring, node) do
+        IO.puts("Node syncing...")
         keys_for_node = ConsistentHashing.get_keys_for_node(ring, node)
 
         Enum.each(keys_for_node, fn key ->

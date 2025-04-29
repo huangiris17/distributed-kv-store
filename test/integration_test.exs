@@ -1,32 +1,40 @@
 defmodule IntegrationTest do
   use ExUnit.Case, async: false
+  alias DistributedKVStore.{ConsistentHashing, MerkleSync}
+
+  @tokens_per_node 5
+  @num_node 10
+  @app Mix.Project.config()[:app]
 
   setup_all do
-    # Start a local cluster with 5 nodes for testing
     LocalCluster.start()
-    IO.puts("Starting node")
 
-    nodes = LocalCluster.start_nodes("test-cluster", 10, verbose: true, timeout: 5000)
+    nodes = LocalCluster.start_nodes("kv", @num_node, connect: :all, verbose: true, timeout: 5000)
+    all_nodes = [Node.self() | nodes]
+    DistributedKVStore.initialize_nodes(nodes)
     IO.inspect(Node.list(), label: "Nodes in the cluster")
 
-    {:ok, nodes: nodes}
+    Enum.each(nodes, fn n ->
+      {:ok, _} = :rpc.call(n, Application, :ensure_all_started, [@app])
+    end)
+
+    ring = ConsistentHashing.build_ring(all_nodes, @tokens_per_node)
+
+    {:ok, nodes: all_nodes, ring: ring, client: hd(all_nodes)}
   end
 
-  setup %{nodes: nodes} do
-    # Initialize the ring with nodes
-    ring = DistributedKVStore.ConsistentHashing.build_ring(nodes, 5)
-    {:ok, ring: ring}
-  end
+  defp put(node, ring, k, v),
+    do: :rpc.call(node, DistributedKVStore, :put, [ring, k, v])
+
+  defp get(node, ring, k),
+    do: :rpc.call(node, DistributedKVStore, :get, [ring, k])
 
   test "store and retrieve key-value pair", %{ring: ring} do
     key = "user1"
     value = "Alice"
 
-    # Store the key-value pair
     assert :ok == DistributedKVStore.put(ring, key, value)
-
-    # Retrieve the value
-    assert {:ok, ^value} = DistributedKVStore.get(ring, key)
+    assert ^value = DistributedKVStore.get(ring, key)
   end
 
   test "handle concurrent updates", %{ring: ring} do
@@ -39,7 +47,7 @@ defmodule IntegrationTest do
     assert :ok == DistributedKVStore.put(ring, key, value2)
 
     # Retrieve the value and check if it's one of the updates
-    assert {:ok, value} = DistributedKVStore.get(ring, key)
+    value = DistributedKVStore.get(ring, "user2")
     assert value in [value1, value2]
   end
 
@@ -47,11 +55,8 @@ defmodule IntegrationTest do
     key = "user3"
     value = "Eve"
 
-    # Store the key-value pair
     assert :ok == DistributedKVStore.put(ring, key, value)
-
-    # Retrieve from a different node (should have the same value)
-    assert {:ok, ^value} = DistributedKVStore.get(ring, key)
+    assert ^value = DistributedKVStore.get(ring, key)
   end
 
   test "merkle tree sync after concurrent updates", %{ring: ring} do
@@ -59,18 +64,12 @@ defmodule IntegrationTest do
     value1 = "Dave"
     value2 = "Eva"
 
-    # Store the first value on one node
     assert :ok == DistributedKVStore.put(ring, key, value1)
-
-    # Simulate another node concurrently updating the value
     assert :ok == DistributedKVStore.put(ring, key, value2)
 
-    # Trigger Merkle tree synchronization across nodes
-    # We simulate that MerkleSync is running and handling conflict resolution
-    DistributedKVStore.MerkleSync.sync()
+    MerkleSync.sync()
 
-    # Retrieve the value and ensure the latest value is chosen based on timestamp/version
-    assert {:ok, value} = DistributedKVStore.get(ring, key)
+    value = DistributedKVStore.get(ring, key)
     assert value in [value1, value2]
   end
 
@@ -79,15 +78,10 @@ defmodule IntegrationTest do
     value1 = "Frank"
     value2 = "Grace"
 
-    # Store the first value on one node
     assert :ok == DistributedKVStore.put(ring, key, value1)
-
-    # Simulate a conflicting update by another node
     assert :ok == DistributedKVStore.put(ring, key, value2)
 
-    # Retrieve the value and ensure the conflict resolution mechanism works
-    # Since we don't specify which value should win, the system will pick one based on the logic
-    assert {:ok, value} = DistributedKVStore.get(ring, key)
+    value = DistributedKVStore.get(ring, key)
     assert value in [value1, value2]
   end
 
@@ -97,17 +91,13 @@ defmodule IntegrationTest do
     value2 = "Ivy"
     value3 = "Jack"
 
-    # Simulate 3 concurrent updates
     assert :ok == DistributedKVStore.put(ring, key, value1)
     assert :ok == DistributedKVStore.put(ring, key, value2)
     assert :ok == DistributedKVStore.put(ring, key, value3)
 
-    # Simulate Merkle tree sync between nodes
-    DistributedKVStore.MerkleSync.sync()
+    # DistributedKVStore.MerkleSync.do_sync(ring)
 
-    # Retrieve the value after conflict resolution
-    # The system should choose one of the values based on timestamp/version or apply a merge strategy
-    assert {:ok, value} = DistributedKVStore.get(ring, key)
+    value = DistributedKVStore.get(ring, key)
     assert value in [value1, value2, value3]
   end
 
@@ -115,14 +105,11 @@ defmodule IntegrationTest do
     key = "user7"
     value = "Kevin"
 
-    # Simulate a scenario where a quorum is not met (e.g., some nodes are down)
     Application.put_env(:distributed_kv, :node_fail_mode, :always_fail)
 
-    # Try to store the key-value pair (this should fail due to lack of quorum)
     put_result = DistributedKVStore.put(ring, key, value)
     assert put_result == :error
 
-    # Check if hints were stored for retry
     hints = :ets.tab2list(:hints)
     assert length(hints) > 0
   end

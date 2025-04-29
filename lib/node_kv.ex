@@ -1,7 +1,8 @@
 defmodule DistributedKVStore.NodeKV do
 
     use GenServer
-    alias DistributedKVStore.MerkleTree
+    alias DistributedKVStore.{MerkleTree, NodeKVBehaviour}
+    @behaviour NodeKVBehaviour
 
     def start_link(opts \\ []) do
         name = opts[:name]
@@ -9,28 +10,34 @@ defmodule DistributedKVStore.NodeKV do
         GenServer.start_link(__MODULE__, %{kv_map: %{}, merkle_tree: nil}, name: name)
     end
 
+    @impl GenServer
     def init(state) do
         # IO.puts("GenServer init ends")
         {:ok, %{state | merkle_tree: MerkleTree.build(state.kv_map)}}
     end
 
+    @impl NodeKVBehaviour
     def get(node, key) do
         # IO.inspect(node, label: "Node called for get")
         GenServer.call(node, {:get, key})
     end
 
+    @impl NodeKVBehaviour
     def get_all(node) do
         GenServer.call(node, :get_all)
     end
 
+    @impl NodeKVBehaviour
     def put(node, key, value, vector_clock, timestamp) do
         GenServer.call(node, {:put, key, value, vector_clock, timestamp})
     end
 
+    @impl NodeKVBehaviour
     def get_merkle_tree(node) do
         GenServer.call(node, :get_merkle_tree)
     end
 
+    @impl GenServer
     def handle_call(message, _from, state) do
         current_node = Node.self()
         IO.puts("Handling message: #{inspect(message)} from #{current_node}")

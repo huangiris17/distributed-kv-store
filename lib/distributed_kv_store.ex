@@ -1,7 +1,3 @@
-###############################
-# Distributed KV Store   #
-###############################
-
 defmodule DistributedKVStore do
     @moduledoc """
     Implemented distributed key–value store core.
@@ -22,7 +18,7 @@ defmodule DistributedKVStore do
 
     def start_node(node_name) do
         {:ok, pid} = NodeKV.start_link(name: node_name)
-        # IO.puts("#{node_name} started with PID: #{inspect(pid)}")
+        IO.puts("#{node_name} started with PID: #{inspect(pid)}")
 
         pid
     end
@@ -223,11 +219,11 @@ defmodule DistributedKVStore do
     defp get_or_create_vector_clock(node, key) do
         case node_get(node, key) do
             {:ok, {_value, vector_clock, _timestamp}} ->
-                IO.puts("Found existing vector clock for #{key}: #{inspect(vector_clock)}")
+                # IO.puts("Found existing vector clock for #{key}: #{inspect(vector_clock)}")
                 VectorClock.update(vector_clock, node)
 
             {:error, _} ->
-                IO.puts("Creating a new vector clock for #{key}")
+                # IO.puts("Creating a new vector clock for #{key}")
                 VectorClock.update(nil, node)
         end
     end

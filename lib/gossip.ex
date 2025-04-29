@@ -38,7 +38,6 @@ defmodule DistributedKVStore.Gossip do
     The process registers itself under the name `:"gossip_{node_id}"` and begins the gossip loop.
     """
     def start(node_id, initial_view \\ %{}) do
-      IO.puts("Gossip starts for node #{node_id}")
       Process.register(self(), gossip_name(node_id))
       # Ensure our own record is in the view
       view = Map.put(initial_view, node_id, %{status: :alive, timestamp: current_time()})
