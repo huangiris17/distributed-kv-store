@@ -43,10 +43,15 @@ defmodule DistributedKVStore.ConsistentHashing do
       end
     end
 
-    # get_node/3
+    # get_nodes/3
     # Get the list of nodes that are in charge of the key on the ring
     def get_nodes(ring, key, replication_factor \\ 3) do
       key_hash = compute_token(key)
+      get_nodes_from_hash(ring, key_hash, replication_factor)
+    end
+
+    # get_nodes_from_hash/3
+    def get_nodes_from_hash(ring, key_hash, replication_factor \\ 3) do
       start_index = Enum.find_index(ring, fn token -> token.value >= key_hash end) || 0
 
 
@@ -63,10 +68,10 @@ defmodule DistributedKVStore.ConsistentHashing do
       node
     end
 
-    def get_keys_for_node(ring, node) do
+    def get_key_hashes_for_node(ring, node) do
         ring
         |> Enum.filter(fn %Token{node: n} -> n == node end)
-        |> Enum.map(fn %Token{value: token_value} -> compute_key(token_value) end)
+        |> Enum.map(fn %Token{value: token_value} -> token_value end)
     end
 
     # compute_token/2
@@ -77,10 +82,5 @@ defmodule DistributedKVStore.ConsistentHashing do
       |> :binary.bin_to_list()
       |> Enum.reduce(0, fn byte, acc -> (acc <<< 8) + byte end)
       |> rem(modulo)
-    end
-
-    defp compute_key(token_value) do
-      key_hash = :crypto.hash(:sha256, <<token_value::binary>>)
-      :binary.encode_unsigned(key_hash)
     end
   end

@@ -21,7 +21,7 @@ defmodule DistributedKVStore.MerkleSync do
         {:noreply, ring}
     end
 
-    defp do_sync(ring) do
+    def do_sync(ring) do
         nodes = get_ring_nodes(ring)
 
         Enum.each(nodes, fn node ->
@@ -29,13 +29,13 @@ defmodule DistributedKVStore.MerkleSync do
         end)
     end
 
-    defp synchronize_node(ring, node) do
+    def synchronize_node(ring, node) do
         IO.puts("Node syncing...")
-        keys_for_node = ConsistentHashing.get_keys_for_node(ring, node)
+        key_hashes_for_node = ConsistentHashing.get_key_hashes_for_node(ring, node)
 
-        Enum.each(keys_for_node, fn key ->
-            replica_nodes = ConsistentHashing.get_nodes(ring, key, @rep_factor)
-            Enum.each(replica_nodes, fn replica ->
+        Enum.each(key_hashes_for_node, fn key_hash ->
+            replicas = ConsistentHashing.get_nodes_from_hash(ring, key_hash, @rep_factor)
+            Enum.each(replicas, fn replica ->
                 if node != replica do
                     synchronize_key(node, replica)
                 end
@@ -65,12 +65,7 @@ defmodule DistributedKVStore.MerkleSync do
     end
 
     defp get_merkle_tree(node) do
-        send(node, {:get_merkle_tree, self()})
-        receive do
-            {:ok, merkle_tree} -> merkle_tree
-        after
-            5000 -> :error
-        end
+        NodeKV.get_merkle_tree(node)
     end
 
     defp resolve_differences(source_node, target_node, differences) do

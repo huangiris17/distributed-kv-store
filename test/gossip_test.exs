@@ -22,6 +22,12 @@ defmodule GossipTest do
       end
     end)
 
+    on_exit(fn ->
+      Enum.each(nodes, fn node ->
+        if pid = Process.whereis(:"gossip_#{node}"), do: Process.exit(pid, :kill)
+      end)
+    end)
+
     Process.sleep(@gossip_rounds * @gossip_interval)
     :ok
   end

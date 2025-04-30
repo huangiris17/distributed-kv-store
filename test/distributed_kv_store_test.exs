@@ -3,6 +3,8 @@ ExUnit.start()
 defmodule DistributedKVStoreTest do
   use ExUnit.Case
 
+  alias DistributedKVStore.{ConsistentHashing, VectorClock, NodeKV, MerkleTree, HintedHandoff, MerkleSync}
+
   @nodes [:node1, :node2, :node3, :node4, :node5, :node6, :node7, :node8, :node9, :node10]
   @key "test_key"
   @value "test_value"
@@ -23,12 +25,13 @@ defmodule DistributedKVStoreTest do
 
     DistributedKVStore.initialize_nodes(@nodes)
 
-    # IO.puts("Connected nodes: #{inspect(Node.list())}")
+    IO.puts("Connected nodes: #{inspect(Node.list())}")
     {:ok, nodes: @nodes}
   end
 
   setup do
-    ring = DistributedKVStore.ConsistentHashing.build_ring(@nodes, 10)
+    ring = ConsistentHashing.build_ring(@nodes, 10)
+    MerkleSync.start_link(ring)
     if :ets.info(:hints) != :undefined, do: :ets.delete_all_objects(:hints)
     {:ok, ring: ring}
   end
@@ -119,7 +122,7 @@ defmodule DistributedKVStoreTest do
     # Simulate retry by forcing a success for the hint
     Application.put_env(:distributed_kv, :node_fail_mode, :always_succeed)
 
-    DistributedKVStore.HintedHandoff.retry_hints()
+    HintedHandoff.retry_hints()
 
     get_result = DistributedKVStore.get(ring, @key)
     assert get_result == @value
@@ -129,4 +132,41 @@ defmodule DistributedKVStoreTest do
       key == @key and value == @value
     end)
   end
+
+  @doc """
+  Merkle tree sync resolves divergent replicas.
+
+  We simulate two replicas diverging on a shared key. After running MerkleSync.sync(),
+  the out-of-sync replica should receive the correct value.
+  """
+  test "merkle tree sync resolves inconsistent replicas", %{ring: ring} do
+    Application.put_env(:distributed_kv, :node_fail_mode, :always_succeed)
+
+    # Pick a test key and determine responsible nodes
+    value1 = "original_value"
+    value2 = "outdated_value"
+    [node1, node2 | _] = ConsistentHashing.get_nodes(ring, @key, 2)
+
+    # Put value1 to node1
+    vc1 = VectorClock.update(nil, node1)
+    {:ok, _val1} = NodeKV.put(node1, @key, value1, vc1, System.system_time(:millisecond))
+
+    # Put stale value2 to node2
+    vc2 = VectorClock.update(nil, node2)
+    {:ok, _val2} = NodeKV.put(node2, @key, value2, vc2, System.system_time(:millisecond))
+
+    # Verify nodes are diverged
+    mt1 = NodeKV.get_merkle_tree(node1)
+    mt2 = NodeKV.get_merkle_tree(node2)
+    diffs = MerkleTree.diff(mt1, mt2)
+    assert Enum.any?(diffs, fn {k, _} -> k == @key end)
+
+    # Start MerkleSync manually
+    MerkleSync.synchronize_node(ring, node1)
+
+    # node2 should now be synced with node1
+    {val, _, _} = NodeKV.get(node2, @key)
+    assert val == value1
+  end
+
 end
