@@ -31,7 +31,6 @@ defmodule DistributedKVStoreTest do
 
   setup do
     ring = ConsistentHashing.build_ring(@nodes, 10)
-    MerkleSync.start_link(ring)
     if :ets.info(:hints) != :undefined, do: :ets.delete_all_objects(:hints)
     {:ok, ring: ring}
   end

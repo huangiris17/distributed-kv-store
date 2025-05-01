@@ -16,12 +16,12 @@ defmodule DistributedKVStore.MerkleSync do
     end
 
     def handle_info(:sync, ring) do
-        do_sync(ring)
+        sync(ring)
         Process.send_after(self(), :sync, @sync_interval_ms)
         {:noreply, ring}
     end
 
-    def do_sync(ring) do
+    def sync(ring) do
         nodes = get_ring_nodes(ring)
 
         Enum.each(nodes, fn node ->
@@ -92,7 +92,7 @@ defmodule DistributedKVStore.MerkleSync do
     end
 
     def handle_call(:manual_sync, _from, ring) do
-        do_sync(ring)
+        sync(ring)
         {:reply, :ok, ring}
     end
 end
